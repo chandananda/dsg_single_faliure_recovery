@@ -20,3 +20,4 @@ if(sys.argv[1]) == 'run':
     f.write(str + '\n')
 
     f.close()
+
