@@ -24,4 +24,5 @@ def get_free_tcp_address():
     tcp.bind(('', 0))
     host, port = tcp.getsockname()
     tcp.close()
-    return 'tcp://{host}:{port}'.format(**locals())
+    # return 'tcp://{host}:{port}'.format(**locals())
+    return '{host}:{port}'.format(**locals())
