@@ -8,9 +8,11 @@ from pubsub import Pub, Sub
 from free_port import get_free_tcp_port, get_free_tcp_address
 
 class Vertex():
-    def __init__(self, path, lst, port):
+    def __init__(self, path, lst, port, id):
         self.path = path
         self.lst = lst
+        self.port = port
+        self.id = id
         self.radio = Radio(port, print)
         self.pub = Pub(port)
         self.sub = Sub(port)
@@ -31,35 +33,43 @@ class Vertex():
             f.close() 
     
     async def fradio(self):
-        # self.radio.start()
-        print("1 Radio is initialized")
-        self.heartbeat_started.set()
-        self.neigh_hood_check_started.set()
-        await asyncio.sleep(2)
-        
+        while True:
+            asyncio.create_task(self.radio.start())
+            print("1 Radio is initialized")
+            self.heartbeat_started.set()
+            self.neigh_hood_check_started.set()
+            await asyncio.sleep(2)
 
     async def fpub(self):
-        print("2 Pub is initialized")
-        await asyncio.sleep(2)
+        while True:
+            print("2 pub Sending...")
+            self.pub.send('10001', 'ready')
+            self.pub.send('10000', 'req')
+            await asyncio.sleep(2)
         
-
     async def heartbeat(self):
-        await self.heartbeat_started.wait()
-        print("3 Heartbeat started")
-        await asyncio.sleep(2)
+        while True:
+            await self.heartbeat_started.wait()
+            print("3 Heart beat broadcasting...")
+            vertex.radio.send(bytes(self.id, 'utf-8'))
+            await asyncio.sleep(2)
         
-
     async def neigh_hood_check(self):
-        await self.neigh_hood_check_started.wait()
-        print("4 Checking for matches in neigh list")
-        self.sub_started.set()
-        await asyncio.sleep(2)
+        while True:
+            await self.neigh_hood_check_started.wait()
+            # asyncio.create_task(self.sub.listen('10001', print))
+            print("4 Checking for matches in neigh list")
+            self.sub_started.set()
+            await asyncio.sleep(2)
         
 
     async def subs(self):
-        await self.sub_started.wait()
-        print("5 Subscribing.....")
-        await asyncio.sleep(2)
+        while True:
+            await self.sub_started.wait()
+            print("5 Subscribing.....")
+            asyncio.create_task(self.sub.listen('10001', print))
+            asyncio.create_task(self.sub.listen('10000', print))
+            await asyncio.sleep(2)
         
 
     async def start(self):
@@ -75,11 +85,12 @@ class Vertex():
 
 if __name__ == '__main__':
     lis = sys.argv[2:]
+    id = sys.argv[2]
     o_path = os.path.abspath(os.path.realpath(sys.argv[1]))
     path = (f'{o_path}/{lis[0]}')
     port = get_free_tcp_port()
-    vertex = Vertex(path, lis, port)
-   
+    vertex = Vertex(path, lis, port, id)
+
     try:
         run(
             vertex.start()
