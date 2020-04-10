@@ -30,7 +30,7 @@ class Vertex():
     async def init_radio(self):
         self.radio = Radio(55555, self.neighbourhood_watch)
         self.radio_started.set()
-        print("1 Radio Started")
+        print(f"1 Radio Started {self.port}")
         await self.radio.start()
 
     async def init_pub(self):
@@ -45,7 +45,7 @@ class Vertex():
         while True:
             # msg = f'{self.port} , {self.neighbourhood[0]}'
             self.radio.send(bytes('msg', 'utf-8'))
-            print("3 Heart beat broadcasting")
+            print(f"3 Heart beat broadcasting {self.port}")
             await asyncio.sleep(2)
 
     def neighbourhood_watch(self, m, a, p):
@@ -67,6 +67,7 @@ if __name__ == '__main__':
     lis = sys.argv[2:]
     o_path = os.path.abspath(os.path.realpath(sys.argv[1]))
     path = (f'{o_path}/{lis[0]}')
+    print('my path is:' + path)
     vertex = Vertex(path, lis)
 
     try:
