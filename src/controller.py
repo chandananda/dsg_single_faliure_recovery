@@ -17,6 +17,6 @@ for row in reader:
 
 for vertex in dictionary:
     neigh = ' '.join(dictionary[vertex])
-    subprocess.Popen(f'python ./vertex.py ./ {vertex} {neigh}', shell=True)
+    subprocess.Popen(f'python ./vertex.py ./ {vertex} {neigh}', creationflags=subprocess.CREATE_NEW_CONSOLE)
     # subprocess.call('python pi.txt', shell=True)
     # Run: D:\Educational\dsg_single_faliure_recovery\src> python .\controller.py ..\data\facebook_data.csv
