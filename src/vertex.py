@@ -33,18 +33,12 @@ class Vertex():
         self.radio_started.set()
         print(f"1 Radio Started {self.port}, self id: {self.neighbourhood[0]}, neighbour list: {self.neighbourhood[1:]}")
         await self.radio.start()
-        # try:
-        #     await self.radio.start()
-        # except KeyboardInterrupt:
-        #     self.radio_started.clear()
-        #     print("Exiting radio...")
-        #     exit()
 
     async def init_pub(self):
         self.pub = Pub(self.port)
         self.pub_started.set()
         print('2 Pub Started')
-        # self.pub.send('10001', 'hullo')
+        self.pub.send('10001', 'hullo')
         await asyncio.sleep(0)
 
     async def init_heart_beat(self):
@@ -75,7 +69,6 @@ class Vertex():
                         print(f'match found {vertex}')
                         self.trace_list.append(vertex_id)
                         self.sub = Sub(vertex_port)
-                        # self.sub.listen('10001', print)
                         break
                 else:
                     print('nothing')
