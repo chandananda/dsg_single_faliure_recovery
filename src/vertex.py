@@ -14,6 +14,7 @@ class Vertex():
         self.port = get_free_tcp_port()
         self.radio_started = asyncio.Event()
         self.pub_started = asyncio.Event()
+        self.trace_list = []
 
     def makeDir(self):
         try:
@@ -30,26 +31,55 @@ class Vertex():
     async def init_radio(self):
         self.radio = Radio(55555, self.neighbourhood_watch)
         self.radio_started.set()
-        print(f"1 Radio Started {self.port}")
+        print(f"1 Radio Started {self.port}, self id: {self.neighbourhood[0]}, neighbour list: {self.neighbourhood[1:]}")
         await self.radio.start()
+        # try:
+        #     await self.radio.start()
+        # except KeyboardInterrupt:
+        #     self.radio_started.clear()
+        #     print("Exiting radio...")
+        #     exit()
 
     async def init_pub(self):
         self.pub = Pub(self.port)
         self.pub_started.set()
         print('2 Pub Started')
+        # self.pub.send('10001', 'hullo')
         await asyncio.sleep(0)
 
     async def init_heart_beat(self):
         await self.radio_started.wait()
         await self.pub_started.wait()
         while True:
-            # msg = f'{self.port} , {self.neighbourhood[0]}'
-            self.radio.send(bytes('msg', 'utf-8'))
-            print(f"3 Heart beat broadcasting {self.port}")
+            msg = f'ready,{self.port},{self.neighbourhood[0]}'
+            self.radio.send(bytes(msg, 'utf-8'))
+            print(f"3 Heart beat broadcasting {self.port}, {self.neighbourhood[0]}")
             await asyncio.sleep(2)
 
-    def neighbourhood_watch(self, m, a, p):
-        print(f"{a}:{p} → {bytes2int(m):08b}")
+    def neighbourhood_watch(self, msg, addr, port):
+        str_msg = str(msg, 'utf-8')
+        msg_list = str_msg.split(',')
+        vertex_msg = msg_list[0]
+        vertex_port = msg_list[1]
+        vertex_id = msg_list[2]
+        # print(self.trace_list)
+        # self.trace_list = []
+        # print(self.neighbourhood[0])
+        # print(self.neighbourhood[1:])
+        # print(vertex_msg)
+        if vertex_msg == 'ready':
+            for vertex in self.neighbourhood[1:]:
+                # print(f'list vertex: {vertex}, vertex ID: {vertex_id}')
+                if vertex_id not in self.trace_list:
+                    if vertex == vertex_id:
+                        print(f'match found {vertex}')
+                        self.trace_list.append(vertex_id)
+                        self.sub = Sub(vertex_port)
+                        # self.sub.listen('10001', print)
+                        break
+                else:
+                    print('nothing')
+        # print(f"ID: {vertex_id} : Broadcast {addr} + {port} : Self {vertex_port} → {bytes2int(bytes(msg_list[0], 'utf-8')):08b}")
 
     def post_msg(self, payload):
         return
