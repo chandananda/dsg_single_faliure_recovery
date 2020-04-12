@@ -38,7 +38,6 @@ class Vertex():
         self.pub = Pub(self.port)
         self.pub_started.set()
         print('2 Pub Started')
-        self.pub.send('10001', 'hullo')
         await asyncio.sleep(0)
 
     async def init_heart_beat(self):
@@ -56,22 +55,16 @@ class Vertex():
         vertex_msg = msg_list[0]
         vertex_port = msg_list[1]
         vertex_id = msg_list[2]
-        # print(self.trace_list)
-        # self.trace_list = []
-        # print(self.neighbourhood[0])
-        # print(self.neighbourhood[1:])
-        # print(vertex_msg)
         if vertex_msg == 'ready':
             for vertex in self.neighbourhood[1:]:
-                # print(f'list vertex: {vertex}, vertex ID: {vertex_id}')
                 if vertex_id not in self.trace_list:
                     if vertex == vertex_id:
                         print(f'match found {vertex}')
                         self.trace_list.append(vertex_id)
                         self.sub = Sub(vertex_port)
                         break
-                else:
-                    print('nothing')
+        elif vertex_msg == 'request':
+            print('recovery process')
         # print(f"ID: {vertex_id} : Broadcast {addr} + {port} : Self {vertex_port} → {bytes2int(bytes(msg_list[0], 'utf-8')):08b}")
 
     def post_msg(self, payload):
