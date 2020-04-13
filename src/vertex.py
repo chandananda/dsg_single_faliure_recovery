@@ -1,6 +1,8 @@
 import sys
 import os
 import asyncio
+import string
+import random
 
 from pubsub import Pub, Sub
 from radio import Radio
@@ -38,7 +40,12 @@ class Vertex():
         self.pub = Pub(self.port)
         self.pub_started.set()
         print('2 Pub Started')
-        await asyncio.sleep(0)
+        while True:
+            chars = string.ascii_uppercase + string.ascii_lowercase
+            msg = ''.join(random.choice(chars) for _ in range(10))  #range can be modified
+            print(f'Sending: {msg}' )
+            self.pub.send('10001', msg)
+            await asyncio.sleep(5)
 
     async def init_heart_beat(self):
         await self.radio_started.wait()
@@ -46,7 +53,7 @@ class Vertex():
         while True:
             msg = f'ready,{self.port},{self.neighbourhood[0]}'
             self.radio.send(bytes(msg, 'utf-8'))
-            print(f"3 Heart beat broadcasting {self.port}, {self.neighbourhood[0]}")
+            # print(f"3 Heart beat broadcasting {self.port}, {self.neighbourhood[0]}")
             await asyncio.sleep(2)
 
     def neighbourhood_watch(self, msg, addr, port):
@@ -55,18 +62,22 @@ class Vertex():
         vertex_msg = msg_list[0]
         vertex_port = msg_list[1]
         vertex_id = msg_list[2]
-        print(f'Received Heartbeat from {vertex_id} : {vertex_port} → {msg} : {vertex_msg}')
+        # print(f'Received Heartbeat from {vertex_id} : {vertex_port} → {msg} : {vertex_msg}')
         if vertex_msg == 'ready' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors:
             print(f'match found {vertex_id}')
             sub = Sub(vertex_port)
+            asyncio.create_task(sub.listen('10001', self.post_msg))
             self.subbed_neighbors.update({vertex_id : sub})
-            print(self.subbed_neighbors)
         elif vertex_msg == 'request':
             print('recovery process')
         # print(f"ID: {vertex_id} : Broadcast {addr} + {port} : Self {vertex_port} → {bytes2int(bytes(msg_list[0], 'utf-8')):08b}")
 
     def post_msg(self, payload):
-        return
+        msg = str(payload[1], 'utf-8')
+        print(f'received msg: {msg}')
+        f = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
+        f.write(f'{msg}\n')
+        f.close()
 
     async def start(self):
         self.makeDir()
