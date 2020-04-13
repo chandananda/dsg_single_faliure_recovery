@@ -14,7 +14,7 @@ class Vertex():
         self.port = get_free_tcp_port()
         self.radio_started = asyncio.Event()
         self.pub_started = asyncio.Event()
-        self.subbed_neighbors = []
+        self.subbed_neighbors = {}
 
     def makeDir(self):
         try:
@@ -55,10 +55,12 @@ class Vertex():
         vertex_msg = msg_list[0]
         vertex_port = msg_list[1]
         vertex_id = msg_list[2]
+        print(f'Received Heartbeat from {vertex_id} : {vertex_port} → {msg} : {vertex_msg}')
         if vertex_msg == 'ready' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors:
             print(f'match found {vertex_id}')
-            self.subbed_neighbors.append(vertex_id)
-            self.sub = Sub(vertex_port)
+            sub = Sub(vertex_port)
+            self.subbed_neighbors.update({vertex_id : sub})
+            print(self.subbed_neighbors)
         elif vertex_msg == 'request':
             print('recovery process')
         # print(f"ID: {vertex_id} : Broadcast {addr} + {port} : Self {vertex_port} → {bytes2int(bytes(msg_list[0], 'utf-8')):08b}")
