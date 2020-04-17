@@ -9,6 +9,10 @@ from radio import Radio
 from util import int2bytes, bytes2int, run
 from free_port import get_free_tcp_port, get_free_tcp_address
 
+RADIO_PORT = 55555
+MSG_TOPIC = '10001'
+STR_RANGE = 10
+
 class Vertex():
     def __init__(self, path, neighbourhood):
         self.path = path
@@ -31,7 +35,7 @@ class Vertex():
             f.close() 
 
     async def init_radio(self):
-        self.radio = Radio(55555, self.neighbourhood_watch)
+        self.radio = Radio(RADIO_PORT, self.neighbourhood_watch)
         self.radio_started.set()
         print(f"1 Radio Started {self.port}, self id: {self.neighbourhood[0]}, neighbour list: {self.neighbourhood[1:]}")
         await self.radio.start()
@@ -42,9 +46,9 @@ class Vertex():
         print('2 Pub Started')
         while True:
             chars = string.ascii_uppercase + string.ascii_lowercase
-            msg = ''.join(random.choice(chars) for _ in range(10))  #range can be modified
+            msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
             print(f'Sending: {msg}' )
-            self.pub.send('10001', msg)
+            self.pub.send(MSG_TOPIC, msg)
             await asyncio.sleep(5)
 
     async def init_heart_beat(self):
@@ -66,9 +70,9 @@ class Vertex():
         if vertex_msg == 'ready' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors:
             print(f'match found {vertex_id}')
             sub = Sub(vertex_port)
-            asyncio.create_task(sub.listen('10001', self.post_msg))
-            self.subbed_neighbors.update({vertex_id : sub})
-        elif vertex_msg == 'request':
+            asyncio.create_task(sub.listen(MSG_TOPIC, self.post_msg))
+            self.subbed_neighbors[vertex_id] = sub
+        elif vertex_msg == 'lost':
             print('recovery process')
         # print(f"ID: {vertex_id} : Broadcast {addr} + {port} : Self {vertex_port} → {bytes2int(bytes(msg_list[0], 'utf-8')):08b}")
 
