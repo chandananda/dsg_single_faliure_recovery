@@ -18,6 +18,9 @@ class Pull():
             string = await self.socket.recv()
             listener(string)
 
+    def pull_cancel(self):
+        self.socket.close()
+
 class Push():
     def __init__(self, port, addr='localhost'):
         self.port = port
@@ -30,3 +33,6 @@ class Push():
     def send(self, message):
         self.scoket.send(bytes(message, 'utf-8'))
         print(f'sending:{message}')
+
+    def push_cancel(self):
+        self.scoket.close()
