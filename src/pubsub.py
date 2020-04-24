@@ -22,6 +22,8 @@ class Pub():
             bytes(message, 'utf8')
         ])
 
+    def pub_cancel(self):
+        self.socket.close()
 
 class Sub():
     def __init__(self, port, addr='localhost'):
@@ -37,7 +39,9 @@ class Sub():
         while True:
             string = await self.socket.recv_multipart()
             listener(string)
-
+    
+    def sub_cancel(self):
+        self.socket.close()
 
 if __name__ == '__main__':
     pub = Pub('55501')
