@@ -8,7 +8,7 @@ from free_port import get_free_tcp_port, get_free_tcp_address
 
 
 class Radio():
-    def __init__(self, port, listener, size=16, poll=1000):
+    def __init__(self, port, listener, size=24, poll=1000):
         self.port = port
         self.listener = listener
         self.size = size
