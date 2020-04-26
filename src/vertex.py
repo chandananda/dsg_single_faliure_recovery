@@ -3,8 +3,6 @@ import os
 import asyncio
 import string
 import random
-import time
-import threading
 
 from pubsub import Pub, Sub
 from radio import Radio
@@ -25,11 +23,10 @@ class Vertex():
         self.pp_port = get_free_tcp_port()
         self.radio_started = asyncio.Event()
         self.pub_started = asyncio.Event()
-        self.recovery_started = asyncio.Event()
+        self.heart_beat_started = asyncio.Event()
         self.subbed_neighbors = {}
         self.pushed_neighbours = {}
         self.neighbour_list = list()
-        self.lock = threading.Lock()
 
     def makeDir(self):
         try:
@@ -54,38 +51,33 @@ class Vertex():
         self.pub_started.set()
         print('2 Pub Started')
         while True:
-            if self.neighbourhood[1:]:
-                while True:
-                    chars = string.ascii_uppercase + string.ascii_lowercase
-                    msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
-                    print(f'Sending: {msg}' )
-                    self.pub.send(MSG_TOPIC, msg)
-                    await asyncio.sleep(10)
-            await asyncio.sleep(5)
-
+            if len(self.neighbourhood[1:]) is len(self.subbed_neighbors.keys()):
+                chars = string.ascii_uppercase + string.ascii_lowercase
+                msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
+                print(f'Sending: {msg}' )
+                self.pub.send(MSG_TOPIC, msg)
+            await asyncio.sleep(6)
 
     async def init_heart_beat(self):
         await self.radio_started.wait()
         await self.pub_started.wait()
+        self.heart_beat_started.set()
+        self.recovery_pull = Pull(PP_PORT)
+        asyncio.create_task(self.recovery_pull.listen(self.gather_msg))
         while True:
             if not self.neighbourhood[1:]:
-                self.recovery_pull = Pull(PP_PORT)
-                asyncio.create_task(self.recovery_pull.listen(self.gather_msg))
-                while len(self.neighbourhood[1:]) == 0:
-                    msg = f'lost,{self.port},{PP_PORT},{self.neighbourhood[0]}'
-                    self.radio.send(bytes(msg, 'utf-8'))
-                    print(f"LOST msg broadcasting: {msg}")
-                    await asyncio.sleep(5)
+                msg = f'lost,{self.port},{PP_PORT},{self.neighbourhood[0]}'
+                self.radio.send(bytes(msg, 'utf-8'))
+                print(f"LOST msg broadcasting: {msg}")
+                await asyncio.sleep(5)
             else:
-                while True:
-                    msg = f'ready,{self.port},{self.pp_port},{self.neighbourhood[0]}'
-                    self.radio.send(bytes(msg, 'utf-8'))
-                    print(f"Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}")
-                    await asyncio.sleep(5)
-            await asyncio.sleep(5)
+                msg = f'ready,{self.port},{self.pp_port},{self.neighbourhood[0]}'
+                self.radio.send(bytes(msg, 'utf-8'))
+                print(f"Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}")
+                await asyncio.sleep(5)
 
     def neighbourhood_watch(self, msg, addr, port):
-        if len(self.neighbourhood[1:]) != 0:
+        if self.neighbourhood[1:]:  #
             str_msg = str(msg, 'utf-8')
             msg_list = str_msg.split(',')
             vertex_msg = msg_list[0]
@@ -102,7 +94,6 @@ class Vertex():
                 self.pushed_neighbours[vertex_id] = push
                 print(f'from neighbourhood watch msg = ready {self.subbed_neighbors}{self.pushed_neighbours}')
             elif vertex_msg == 'lost' and vertex_id in self.neighbourhood [1:] and vertex_id in self.subbed_neighbors:
-                # self.lock.acquire()
                 instance = self.subbed_neighbors[vertex_id]
                 instance.sub_cancel()
                 del self.subbed_neighbors[vertex_id]
@@ -123,25 +114,32 @@ class Vertex():
         f.close()
 
     async def partial_replication(self):
+        await self.heart_beat_started.wait()
+        print('Partial Replication Started')
         self.pull = Pull(self.pp_port)
         asyncio.create_task(self.pull.listen(self.replicate_msg))
-        while True:
-            while len(self.pushed_neighbours.keys()) != len(self.neighbourhood[1:]) or not self.neighbourhood[1:]:
-                await asyncio.sleep(1)
-            length = len(self.neighbourhood) - 1
-            while True:
-                f = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'r')
-                for line_no, line in enumerate(f, 1):
-                    vertex_number = (line_no % length)
-                    if vertex_number == 0:
-                        vertex_number = length
-                    Id = self.neighbourhood[vertex_number]
-                    if Id in self.pushed_neighbours:
-                        ins = self.pushed_neighbours[Id]
-                        print(f'Send -> Receiver Id: {Id}, no: {vertex_number}, port: {ins.port}, msg: {line_no}-> {line}')
-                        ins.send(f'{self.neighbourhood[0]},{line_no},{line}')
-                    await asyncio.sleep(6)
-            f.close()
+        while not self.neighbourhood[1:] or len(self.pushed_neighbours.keys()) != len(self.neighbourhood[1:]):
+            await asyncio.sleep(5)
+        total_node = len(self.neighbourhood) - 1
+        file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'r')
+        while file is None:
+            asyncio.sleep(5)
+        for line_no, line in enumerate(file, 1):
+            vertex_number = (line_no % total_node)
+            if vertex_number == 0:
+                vertex_number = total_node
+            # if line = '':
+            if self.neighbourhood[vertex_number] in self.pushed_neighbours:
+                print(f'Vertex No: {vertex_number}, data: {line}')
+                id = self.neighbourhood[vertex_number]
+                push_ins = self.pushed_neighbours[id]
+                push_ins.send(f'{self.neighbourhood[0]},{line_no},{line}')
+                # self.pushed_neighbours[self.neighbourhood[vertex_number]].send(f'{self.neighbourhood[0]},{line_no},{line}')
+                await asyncio.sleep(5)
+            else:
+                await asyncio.sleep(5)
+                continue 
+        file.close()
         
     def replicate_msg(self, rec_payload):
         message = str(rec_payload, 'utf-8')
