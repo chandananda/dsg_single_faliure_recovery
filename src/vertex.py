@@ -51,7 +51,7 @@ class Vertex():
         self.pub_started.set()
         print('2 Pub Started')
         while True:
-            if len(self.neighbourhood[1:]) is len(self.subbed_neighbors.keys()) and not self.neighbourhood[1:]:
+            if len(self.neighbourhood[1:]) is len(self.subbed_neighbors.keys()) and self.neighbourhood[1:]:
                 chars = string.ascii_uppercase + string.ascii_lowercase
                 msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
                 print(f'Sending: {msg}' )
