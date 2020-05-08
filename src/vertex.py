@@ -3,6 +3,9 @@ import os
 import asyncio
 import string
 import random
+import time
+import linecache
+import operator
 
 from pubsub import Pub, Sub
 from radio import Radio
@@ -15,6 +18,7 @@ MSG_TOPIC = '10001'
 STR_RANGE = 10
 PP_PORT = get_free_tcp_port()
 total_broadcast_no = 5
+LINE = 1
 
 class Vertex():
     def __init__(self, path, neighbourhood):
@@ -27,6 +31,10 @@ class Vertex():
         self.heart_beat_started = asyncio.Event()
         self.subbed_neighbors = {}
         self.pushed_neighbours = {}
+        self.sub_listen_task = {}
+        self.getting_ready_to_write = asyncio.Event()
+        self.has_finished_writing = asyncio.Event()
+        self.temp_buff = []
 
     def makeDir(self):
         try:
@@ -56,7 +64,7 @@ class Vertex():
                 msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
                 print(f'Sending: {msg}' )
                 self.pub.send(MSG_TOPIC, msg)
-            await asyncio.sleep(6)
+            await asyncio.sleep(15)
 
     async def init_heart_beat(self):
         await self.radio_started.wait()
@@ -71,10 +79,11 @@ class Vertex():
                     self.radio.send(bytes(msg, 'utf-8'))
                     print(f"LOST msg broadcasting: {msg}")
                     await asyncio.sleep(5)
+                self.recovery_pull.pull_cancel()
             else:
                 msg = f'ready,{self.port},{self.pp_port},{self.neighbourhood[0]}'
                 self.radio.send(bytes(msg, 'utf-8'))
-                print(f"Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}")
+                print(f'Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}')
                 await asyncio.sleep(5)
 
     def neighbourhood_watch(self, msg, addr, port):
@@ -90,11 +99,17 @@ class Vertex():
                 print(f'Match found from ready msg {vertex_id}')
                 sub = Sub(vertex_port)
                 self.subbed_neighbors[vertex_id] = sub
-                asyncio.create_task(sub.listen(MSG_TOPIC, self.post_msg))
+                task = asyncio.create_task(sub.listen(MSG_TOPIC, self.post_msg))
+                self.sub_listen_task[vertex_id] = task
                 push = Push(vertex_pp_port)
+                print(self.pushed_neighbours)
                 self.pushed_neighbours[vertex_id] = push
+                print(self.pushed_neighbours)
                 print(f'From neighbourhood watch msg = ready {self.subbed_neighbors}{self.pushed_neighbours}')
             elif vertex_msg == 'lost' and vertex_id in self.neighbourhood [1:] and vertex_id in self.subbed_neighbors:
+                task_instance = self.sub_listen_task[vertex_id]
+                task_instance.cancel()
+                del self.sub_listen_task[vertex_id]
                 instance = self.subbed_neighbors[vertex_id]
                 instance.sub_cancel()
                 del self.subbed_neighbors[vertex_id]
@@ -119,18 +134,23 @@ class Vertex():
         print('Partial Replication Started')
         self.pull = Pull(self.pp_port)
         asyncio.create_task(self.pull.listen(self.replicate_msg))
+        line_no = 1
         while True:
-            if self.neighbourhood[1:] and len(self.neighbourhood[1:]) == len(self.pushed_neighbours.keys()):
-                file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'r')
+            if self.neighbourhood[1:] and len(self.neighbourhood[1:]) == len(self.pushed_neighbours.keys()) and len(self.neighbourhood[1:]) == len(self.subbed_neighbors.keys()):
+                file = f'{self.path}/{self.neighbourhood[0]}.txt'
                 while file is None:
-                    asyncio.sleep(5)
-                for line_no, line in enumerate(file, 1):
-                    round_robin_id = self.neighbourhood[line_no % (len(self.neighbourhood) - 1) + 1]
-                    if round_robin_id in self.pushed_neighbours.keys():
-                        self.pushed_neighbours[round_robin_id].send(f'{self.neighbourhood[0]},{line_no},{line}')
-                        print(f'Vertex No: {round_robin_id}, data: {line}')
                     await asyncio.sleep(5)
-                file.close()
+                line = linecache.getline(file, line_no)
+                while not line:
+                    await asyncio.sleep(5)
+                    linecache.clearcache()
+                    line = linecache.getline(file, line_no)
+                    print(f'New line: {line}')
+                round_robin_id = self.neighbourhood[line_no % (len(self.neighbourhood) - 1) + 1]
+                if round_robin_id in self.pushed_neighbours.keys():
+                    self.pushed_neighbours[round_robin_id].send(f'{self.neighbourhood[0]},{line_no},{line}')
+                    print(f'Vertex No: {round_robin_id}, data: {line}')
+                line_no = line_no + 1
             await asyncio.sleep(5)
         
     def replicate_msg(self, rec_payload):
@@ -147,11 +167,32 @@ class Vertex():
         message = str(message, 'utf-8')
         message_list = message.split(':')
         rec_vertex_id = message_list[0]
-        line_no = message_list[1]
+        line_no = int(message_list[1])
         line_data = message_list[2]
-        file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
-        file.write(f'{message}')
-        file.close()
+        global LINE
+        try:
+            if line_no != LINE:
+                self.temp_buff.append(tuple([line_no, line_data]))
+            self.temp_buff.sort(key = operator.itemgetter(0))
+            if line_no == LINE:
+                with open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+') as fileout:
+                    for data in self.temp_buff:
+                        fileout.write(f'{data[0]}:{data[1]}')
+                    self.temp_buff.clear()
+                with open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+') as fileout:
+                    fileout.write(f'{line_no}:{line_data}')
+                fileout.close()
+            if len(self.temp_buff) >= (len(self.neighbourhood[1:]) * 2): #verify
+                with open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+') as fileout:
+                    for data in self.temp_buff:
+                        fileout.write(f'{data[0]}:{data[1]}')
+                    self.temp_buff.clear()
+            LINE = LINE + 1
+        except:
+            with open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+') as fileout:
+                for data in self.temp_buff:
+                    fileout.write(f'{data[0]}:{data[1]}')
+                self.temp_buff.clear()
         if rec_vertex_id not in self.neighbourhood[1:]:
             self.neighbourhood.append(rec_vertex_id)
         print(self.neighbourhood)
