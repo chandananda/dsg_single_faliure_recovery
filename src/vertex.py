@@ -34,14 +34,10 @@ class Vertex():
         self.subbed_neighbors = {}
         self.pushed_neighbours = {}
         self.sub_listen_task = {}
-        self.no_readers_event = asyncio.Event()
-        self.no_writers_event = asyncio.Event()
         self.node_failure = asyncio.Event()
         self.lost_help_list = []
         self.heartbeat_sense_buff = {}
-        self.temp = {}
-        self.lock = asyncio.Lock()
-        self.msg_queue = deque()
+        self.temp_buff = {}
 
     def makeDir(self):
         try:
@@ -58,9 +54,6 @@ class Vertex():
     async def init_radio(self):
         self.radio = Radio(RADIO_PORT, self.neighbourhood_watch)
         self.radio_started.set()
-        self.no_readers_event.set()
-        self.no_writers_event.set()
-        print(f'Radiot: {self.lock.locked()}, {self.no_readers_event}, {self.no_writers_event}')
         print(f"1 Radio Started {self.port}, self id: {self.neighbourhood[0]}, neighbour list: {self.neighbourhood[1:]}")
         await self.radio.start()
 
@@ -72,7 +65,7 @@ class Vertex():
             if len(self.neighbourhood[1:]) is len(self.subbed_neighbors.keys()) and self.neighbourhood[1:]:
                 chars = string.ascii_uppercase + string.ascii_lowercase
                 msg = ''.join(random.choice(chars) for _ in range(STR_RANGE))
-                print(f'Sending: {msg}' )
+                print(f'Sending by PUB: {msg}' )
                 self.pub.send(MSG_TOPIC, msg)
             await asyncio.sleep(5 * len(self.neighbourhood[1:]))
 
@@ -88,152 +81,113 @@ class Vertex():
                     msg = f'lost,{self.port},{PP_PORT},{self.neighbourhood[0]}'
                     self.radio.send(bytes(msg, 'utf-8'))
                     print(f"LOST msg broadcasting: {msg}")
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(5)
                 """Shift recovery pull cancel"""
-                self.recovery_pull.pull_cancel()
+                # self.recovery_pull.pull_cancel()
             else:
                 msg = f'ready,{self.port},{self.pp_port},{self.neighbourhood[0]}'
                 self.radio.send(bytes(msg, 'utf-8'))
                 print(f'Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}')
-                await asyncio.sleep(10)
+                await asyncio.sleep(5)
 
     def neighbourhood_watch(self, msg, addr, port):
         if self.neighbourhood[1:]:
             str_msg = str(msg, 'utf-8')
-            self.msg_queue.append(str_msg)
-
-    async def msg_watching(self):
-        await self.radio_started.wait()
-        while True:
-            async with self.lock:
-                self.no_writers_event.clear()
-                await self.no_readers_event.wait()
-                if self.msg_queue:
-                    str_msg = self.msg_queue.popleft()
-                    print(f'From msg_watching {self.msg_queue} : {str_msg}')
-                    msg_list = str_msg.split(',')
-                    vertex_msg = msg_list[0]
-                    vertex_port = msg_list[1]
-                    vertex_pp_port = msg_list[2]
-                    vertex_id = msg_list[3]
-                    print(f'Received Heartbeat from {vertex_id} : {vertex_port} → {str_msg} : {vertex_msg}')
-                    print(self.node_failure.is_set)
-                    if vertex_id in self.heartbeat_sense_buff.keys() and vertex_msg == 'ready':
-                        self.heartbeat_sense_buff[vertex_id] += 1
-                        print(self.heartbeat_sense_buff)
-                    if vertex_msg == 'ready' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors and vertex_id not in self.pushed_neighbours:
-                        self.lost_help_list.clear()
-                        self.node_failure.clear()
-                        for id in self.heartbeat_sense_buff:
-                            self.heartbeat_sense_buff[id] = 0
-                        self.heartbeat_sense_buff[vertex_id] = 0
-                        print(f'Match found from ready msg {vertex_id}')
-                        sub = Sub(vertex_port)
-                        self.subbed_neighbors[vertex_id] = sub
-                        print('match step 1')
-                        task = asyncio.create_task(sub.listen(MSG_TOPIC, self.post_msg))
-                        self.sub_listen_task[vertex_id] = task
-                        print('match step 2')
-                        push = Push(vertex_pp_port)
-                        print(self.pushed_neighbours)
-                        self.pushed_neighbours[vertex_id] = push
-                        print('match step 3')
-                        print(self.pushed_neighbours)
-                        print(f'From neighbourhood watch msg = ready {self.subbed_neighbors}{self.pushed_neighbours}')
-                    elif vertex_msg == 'lost' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors and vertex_id not in self.lost_help_list:
-                            self.lost_help_list.append(vertex_id)
-                            recovery_push = Push(vertex_pp_port)
-                            file = open(f'{self.path}/{vertex_id}.txt', 'r+')
-                            for line_no, line in enumerate(file, 1):
-                                recovery_push.send(f'{self.neighbourhood[0]}:{line}')
-                                time.sleep(2)
-                            file.truncate(0)
-                            file.close()
-                            recovery_push.push_cancel()
-                            print(f'From neighbourhood watch msg = lost {self.subbed_neighbors}{self.pushed_neighbours}')
-                else:
-                    pass
-            self.no_writers_event.set()
-            await asyncio.sleep(0)
+            msg_list = str_msg.split(',')
+            vertex_msg = msg_list[0]
+            vertex_port = msg_list[1]
+            vertex_pp_port = msg_list[2]
+            vertex_id = msg_list[3]
+            print(f'Received Heartbeat from {vertex_id}, {vertex_port} → {msg}')
+            print(self.node_failure.is_set)
+            if vertex_id in self.heartbeat_sense_buff.keys() and vertex_msg == 'ready':
+                self.heartbeat_sense_buff[vertex_id] += 1
+                print(f'Heartbeat Buffer: {self.heartbeat_sense_buff}')
+            if vertex_msg == 'ready' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors:
+                self.lost_help_list.clear()
+                self.node_failure.clear()
+                for id in self.heartbeat_sense_buff:
+                    self.heartbeat_sense_buff[id] = 0
+                self.heartbeat_sense_buff[vertex_id] = 0
+                print(f'Match found from READY msg: {vertex_id}')
+                sub = Sub(vertex_port)
+                self.subbed_neighbors[vertex_id] = sub
+                self.sub_listen_task[vertex_id] = asyncio.create_task(sub.listen(MSG_TOPIC, self.post_msg))
+                self.pushed_neighbours[vertex_id] = Push(vertex_pp_port)
+                print(f'From neighbourhood watch: READY \n {self.subbed_neighbors} \n {self.pushed_neighbours}')
+            elif vertex_msg == 'lost' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors and vertex_id not in self.lost_help_list:
+                self.lost_help_list.append(vertex_id)
+                self.recovery_push = Push(vertex_pp_port)
+                file = open(f'{self.path}/{vertex_id}.txt', 'r+')
+                for line_no, line in enumerate(file, 1):
+                    self.recovery_push.send(f'{self.neighbourhood[0]}:{vertex_id}:{line}')
+                    time.sleep(2)
+                file.truncate(0)
+                file.close()
+                self_file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'r')
+                for line_no, line in enumerate(self_file, 1):
+                    if self.neighbourhood[line_no % (len(self.neighbourhood) - 1) + 1] == vertex_id:
+                        line_data = f'{line_no}:{line}'
+                        self.recovery_push.send(f'{self.neighbourhood[0]}:{self.neighbourhood[0]}:{line_data}')
+                        time.sleep(2)
+                self_file.close()
+                self.recovery_push.push_cancel()
+                print(f'From neighbourhood watch: LOST \n {self.subbed_neighbors} \n {self.pushed_neighbours}')
 
     async def failure_detection(self):
         await self.heart_beat_started.wait()
         count = 1
-        single_temp = {}
+        single_temp = deque(maxlen=4)
         failed_node = None
         while True:
-            async with self.lock:
-                self.no_writers_event.clear()
-                await self.no_readers_event.wait()
-                print(f'from failure detection: {self.node_failure}, {self.node_failure.is_set()}')
-                if self.neighbourhood[1:] and self.heartbeat_sense_buff and self.node_failure:
-                    temp = self.heartbeat_sense_buff
-                    if len(temp.keys()) == 1 and not self.node_failure.is_set():
-                        val, = temp.values()
-                        single_temp[count] = val
-                        if count > 1 and single_temp[count] - single_temp[count - 1] > 0:
-                            failed_node = id
-                            self.node_failure.set()
-                    elif len(temp.keys()) > 1 and not self.node_failure.is_set():
-                        min_id, min_val = min(temp.items(), key = lambda x: x[1])
-                        max_id, max_val = max(temp.items(), key = lambda x: x[1])
-                        print(f'From failure detection : {temp} -> {min_val}, {max_val}')
-                        if (max_val - min_val) > 1:
-                            print(f'Failed id: {min_id}')
-                            failed_node = min_id
-                            self.node_failure.set()
-                    del temp
-                    if failed_node is not None and self.node_failure.is_set():
-                        task_instance = self.sub_listen_task.pop(failed_node, None)
-                        task_instance.cancel()
-                        print('task deleted')
-                        print(self.subbed_neighbors)
-                        instance = self.subbed_neighbors.pop(failed_node, None)
-                        instance.sub_cancel()
-                        print('sub deleted')
-                        print(self.subbed_neighbors)
-                        print(self.pushed_neighbours)
-                        print('step 1')
-                        self.pushed_neighbours.pop(failed_node).push_cancel()
-                        print('step 2')
-                        print(self.pushed_neighbours)
-                        print('step 3')
-                        print('push deleted')
-                        print(self.pushed_neighbours)
-                        print('step 4')
-                        del self.heartbeat_sense_buff[failed_node]
-                        failed_node = None
-                        print('heartbeat deleted')
-                self.no_writers_event.set()
+            print(f'from failure detection: {self.node_failure}, {self.node_failure.is_set()}')
+            if self.neighbourhood[1:] and self.heartbeat_sense_buff and self.node_failure:
+                if len(self.neighbourhood[1:]) == 1 and not self.node_failure.is_set():
+                    print(self.heartbeat_sense_buff)
+                    print(self.heartbeat_sense_buff.values())
+                    val, = self.heartbeat_sense_buff.values()
+                    single_temp.append(val)
+                    print(self.heartbeat_sense_buff)
+                    print(single_temp)
+                    if (len(single_temp) == 4) and (single_temp[0] - single_temp[3] == 0):
+                        failed_node = self.neighbourhood[1]
+                        print(f'Failed id: {failed_node}')
+                        self.node_failure.set()
+                        single_temp.clear()
+                elif len(self.heartbeat_sense_buff.keys()) > 1 and not self.node_failure.is_set():
+                    min_id, min_val = min(self.heartbeat_sense_buff.items(), key = lambda x: x[1])
+                    max_id, max_val = max(self.heartbeat_sense_buff.items(), key = lambda x: x[1])
+                    print(f'From failure detection : {self.heartbeat_sense_buff} -> {min_val}, {max_val}')
+                    if (max_val - min_val) > 1:
+                        print(f'Failed id: {min_id}')
+                        failed_node = min_id
+                        self.node_failure.set()
+                if failed_node is not None and self.node_failure.is_set():
+                    self.sub_listen_task.pop(failed_node, None).cancel()
+                    self.subbed_neighbors.pop(failed_node, None).sub_cancel()
+                    self.pushed_neighbours.pop(failed_node, None).push_cancel()
+                    del self.heartbeat_sense_buff[failed_node]
+                    failed_node = None
             await asyncio.sleep(5)
 
 
     def post_msg(self, payload):
         msg = str(payload[1], 'utf-8')
         print(f'Received msg: {msg}')
-        f = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
-        f.write(f'{msg}\n')
-        f.close()
+        file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
+        file.write(f'{msg}\n')
+        file.close()
 
     async def partial_replication(self):
         await self.heart_beat_started.wait()
         print('Partial Replication Started')
         self.pull = Pull(self.pp_port)
-        for id in self.neighbourhood[1:]:
-            if os.path.isfile(f'{self.path}/{id}.txt'):
-                with open(f'{self.path}/{id}.txt','w'): pass
         asyncio.create_task(self.pull.listen(self.replicate_msg))
         await asyncio.sleep(5)
         line_no = 1
         while True:
-            while True:
-                await self.no_writers_event.wait()
-                if self.lock.locked():
-                    print('Can not Read !!!!!!!!!!!!!')
-                else:
-                    break
-            self.no_readers_event.clear()
             print('partial checking')
+            print(f'Neigh: {self.neighbourhood} -> {len(self.neighbourhood[1:])}, push: {len(self.pushed_neighbours.keys())}, sub: {len(self.subbed_neighbors.keys())}')
             if self.neighbourhood[1:] and len(self.neighbourhood[1:]) == len(self.pushed_neighbours.keys()) and len(self.neighbourhood[1:]) == len(self.subbed_neighbors.keys()):
                 print('hi i am in')
                 file = f'{self.path}/{self.neighbourhood[0]}.txt'
@@ -252,8 +206,7 @@ class Vertex():
                     self.pushed_neighbours[round_robin_id].send(f'{self.neighbourhood[0]},{line_no},{line}')
                     print(f'Vertex No: {round_robin_id}, data: {line}')
                 line_no = line_no + 1
-            self.no_readers_event.set()
-            await asyncio.sleep(10)
+            await asyncio.sleep(0)
         
     def replicate_msg(self, rec_payload):
         message = str(rec_payload, 'utf-8')
@@ -268,28 +221,30 @@ class Vertex():
     def gather_msg(self, message):
         message = str(message, 'utf-8')
         message_list = message.split(':')
-        rec_vertex_id = message_list[0]
-        line_no = int(message_list[1])
-        line_data = message_list[2]
+        sender_id = message_list[0]
+        rec_vertex_id = message_list[1]
+        line_no = int(message_list[2])
+        line_data = message_list[3]
         print(f'The received message: {message}')
-        global COUNTER
-        file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
-        print(f'Entering gather_msg: {COUNTER}')
-        if COUNTER == line_no:
-            file.write(f'{line_no}: {line_data}')
-            COUNTER += 1
-            print(f'write from if: {COUNTER} {self.temp}')
-            while COUNTER in self.temp.keys():
-                file.write(f'{COUNTER}: {self.temp[COUNTER]}')
+        if rec_vertex_id == self.neighbourhood[0]:
+            global COUNTER
+            file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
+            if COUNTER == line_no:
+                file.write(f'{line_no}:{line_data}')
                 COUNTER += 1
-                print(f'write from while: {COUNTER}')
-        else:
-            print(f'from else: {COUNTER} {self.temp}')
-            self.temp[line_no] = line_data
-        file.close()
+                while COUNTER in self.temp_buff.keys():
+                    file.write(f'{COUNTER}:{self.temp_buff[COUNTER]}')
+                    COUNTER += 1
+            else:
+                self.temp_buff[line_no] = line_data
+            file.close()
 
-        if rec_vertex_id not in self.neighbourhood[1:]:
-            self.neighbourhood.append(rec_vertex_id)
+            if sender_id not in self.neighbourhood[1:]:
+                self.neighbourhood.append(sender_id)
+        else:
+            f = open(f'{self.path}/{rec_vertex_id}.txt', 'a+')
+            f.write(f'{line_no}:{line_data}')
+            f.close()
 
     async def start(self):
         self.makeDir()
@@ -299,7 +254,6 @@ class Vertex():
             self.init_heart_beat(),
             self.partial_replication(),
             self.failure_detection(),
-            self.msg_watching(),
         )
 
     
