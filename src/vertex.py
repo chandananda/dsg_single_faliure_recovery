@@ -6,6 +6,8 @@ import random
 import time
 import linecache
 import operator
+import tkinter
+import datetime
 
 from pubsub import Pub, Sub
 from radio import Radio
@@ -13,13 +15,15 @@ from util import int2bytes, bytes2int, run
 from free_port import get_free_tcp_port, get_free_tcp_address
 from pushpull import Push, Pull
 from collections import deque
+from tkinter import *
+from tkinter import messagebox
+from datetime import datetime, date
 
 RADIO_PORT = 55555
 MSG_TOPIC = '10001'
 STR_RANGE = 10
 PP_PORT = get_free_tcp_port()
 total_broadcast_no = 5
-LINE = 1
 COUNTER = 1
 
 class Vertex():
@@ -38,6 +42,8 @@ class Vertex():
         self.lost_help_list = []
         self.heartbeat_sense_buff = {}
         self.temp_buff = {}
+        self.recovery_time_start = datetime.now()
+        self.srecovery = datetime.min.time()
 
     def makeDir(self):
         try:
@@ -52,6 +58,8 @@ class Vertex():
             f.close() 
 
     async def init_radio(self):
+        if not self.neighbourhood[1:]:
+            self.srecovery = datetime.now().time()
         self.radio = Radio(RADIO_PORT, self.neighbourhood_watch)
         self.radio_started.set()
         print(f"1 Radio Started {self.port}, self id: {self.neighbourhood[0]}, neighbour list: {self.neighbourhood[1:]}")
@@ -85,6 +93,18 @@ class Vertex():
                 """Shift recovery pull cancel"""
                 # self.recovery_pull.pull_cancel()
             else:
+                if self.srecovery != datetime.min.time():
+                    recent = datetime.now().time()
+                    srecovery_time = datetime.combine(date.today(), recent) - datetime.combine(date.today(), self.srecovery)
+                    srecord = open('output.txt', 'a+')
+                    srecord.write(f'Self Recovery time = {srecovery_time}')
+                    srecord.write('\n')
+                    srecord.close()
+                    dialog = tkinter.Tk()
+                    dialog.withdraw()
+                    messagebox.showinfo(f'Self Recovery time', srecovery_time ) 
+                    dialog.quit()
+                    self.srecovery = datetime.min.time()
                 msg = f'ready,{self.port},{self.pp_port},{self.neighbourhood[0]}'
                 self.radio.send(bytes(msg, 'utf-8'))
                 print(f'Heart beat broadcasting: {self.port}, {self.neighbourhood[0]}')
@@ -116,6 +136,7 @@ class Vertex():
                 self.pushed_neighbours[vertex_id] = Push(vertex_pp_port)
                 print(f'From neighbourhood watch: READY \n {self.subbed_neighbors} \n {self.pushed_neighbours}')
             elif vertex_msg == 'lost' and vertex_id in self.neighbourhood [1:] and vertex_id not in self.subbed_neighbors and vertex_id not in self.lost_help_list:
+                self.recovery_time_start = datetime.now().time()
                 self.lost_help_list.append(vertex_id)
                 self.recovery_push = Push(vertex_pp_port)
                 file = open(f'{self.path}/{vertex_id}.txt', 'r+')
@@ -132,6 +153,16 @@ class Vertex():
                         time.sleep(2)
                 self_file.close()
                 self.recovery_push.push_cancel()
+                recent_time = datetime.now().time()
+                recovery_time = datetime.combine(date.today(), recent_time) - datetime.combine(date.today(), self.recovery_time_start)
+                window = tkinter.Tk()
+                window.withdraw()
+                messagebox.showinfo(f'Recovery_time: {self.neighbourhood[0]}', recovery_time ) 
+                window.quit()
+                record = open('output.txt', 'a+')
+                record.write(f'Recovery time by {self.neighbourhood[0]} = {recovery_time}')
+                record.write('\n')
+                record.close()
                 print(f'From neighbourhood watch: LOST \n {self.subbed_neighbors} \n {self.pushed_neighbours}')
 
     async def failure_detection(self):
@@ -163,6 +194,24 @@ class Vertex():
                         failed_node = min_id
                         self.node_failure.set()
                 if failed_node is not None and self.node_failure.is_set():
+                    with open('kill_time.txt') as file:
+                        for line in file:
+                            if f'{failed_node}kill_time' in line:
+                                line_info_list = line.split('=')
+                                node_id = line_info_list[0]
+                                fail_detect_start = line_info_list[1]
+                                datetime_obj = datetime.strptime(fail_detect_start, '%H:%M:%S.%f\n').time()
+                                current_time = datetime.now().time()
+                                detection_time = datetime.combine(date.today(), current_time) - datetime.combine(date.today(), datetime_obj)
+                                top = tkinter.Tk()  
+                                top.withdraw()
+                                messagebox.showinfo(f'Detection: {self.neighbourhood[0]}',detection_time) 
+                                top.quit()
+                                record = open('output.txt', 'a+')
+                                record.write(f'Output records for {failed_node} \n')
+                                record.write(f'Detection time by {self.neighbourhood[0]} = {detection_time}')
+                                record.write('\n')
+                                record.close()
                     self.sub_listen_task.pop(failed_node, None).cancel()
                     self.subbed_neighbors.pop(failed_node, None).sub_cancel()
                     self.pushed_neighbours.pop(failed_node, None).push_cancel()
@@ -230,10 +279,12 @@ class Vertex():
             global COUNTER
             file = open(f'{self.path}/{self.neighbourhood[0]}.txt', 'a+')
             if COUNTER == line_no:
-                file.write(f'{line_no}:{line_data}')
+                # file.write(f'{line_no}:{line_data}')
+                file.write(f'{line_data}')
                 COUNTER += 1
                 while COUNTER in self.temp_buff.keys():
-                    file.write(f'{COUNTER}:{self.temp_buff[COUNTER]}')
+                    # file.write(f'{COUNTER}:{self.temp_buff[COUNTER]}')
+                    file.write(f'{self.temp_buff[COUNTER]}')
                     COUNTER += 1
             else:
                 self.temp_buff[line_no] = line_data
@@ -262,6 +313,11 @@ if __name__ == '__main__':
     o_path = os.path.abspath(os.path.realpath(sys.argv[1]))
     path = (f'{o_path}/{lis[0]}')
     vertex = Vertex(path, lis)
+    pid = os.getpid()
+    store_id = open('process_ids.txt', 'a+')
+    store_id.write(f'{lis[0]}:{pid}')
+    store_id.write("\n")
+    store_id.close()
 
     try:
         run(
