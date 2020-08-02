@@ -1,9 +1,10 @@
 # dsg_single_faliure_recovery
+
 Single Faliure Recovery on Distributed Social Graph
 
 To Execute the total system follow the order given below:
 
-Run all the nodes in a dataset:
+Run all the nodes with a I/P dataset:
 ------------------------------
 1:- Save the project in your computer.
 2:- Open the terminal(ex: powershell) and change the default execution path to the path where the project is stored.
