@@ -4,7 +4,7 @@ import sys
 import shutil
 import datetime
 import in_place
-
+import time
 import fileinput
 
 process_id = None
@@ -13,6 +13,7 @@ f_cache = None
 
 kill_node = sys.argv[1]
 print("Node to kill -> ", kill_node)
+line_count = int(sys.argv[2])
 
 with open('process_ids.txt', 'r') as file:
     for line in file:
@@ -23,10 +24,16 @@ with open('process_ids.txt', 'r') as file:
         process_id = line_info_list[1]
         pid = int(process_id)
         if node_id == kill_node:
-            kill_id = pid
-            print(f'--------{kill_node} Node will be killed ---------')
-            os.kill(pid, signal.SIGTERM)
-
+            while True:
+                num_lines = sum(1 for line in open(f'{node_id}/{node_id}.txt'))
+                if num_lines < line_count:
+                    time.sleep(1)
+                if num_lines >= line_count:
+                    kill_id = pid
+                    print(f'--------{kill_node} Node will be killed ---------')
+                    os.kill(pid, signal.SIGTERM)
+                    break
+                    
 shutil.move(kill_node, 'copy')
 detection_time_start = datetime.datetime.now().time()
 
