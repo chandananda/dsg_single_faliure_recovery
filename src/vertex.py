@@ -8,6 +8,7 @@ import linecache
 import operator
 import tkinter
 import datetime
+import psutil
 
 from pubsub import Pub, Sub
 from radio import Radio
@@ -313,12 +314,21 @@ if __name__ == '__main__':
     o_path = os.path.abspath(os.path.realpath(sys.argv[1]))
     path = (f'{o_path}/{lis[0]}')
     vertex = Vertex(path, lis)
+   time.sleep(1)
     pid = os.getpid()
     store_id = open('process_ids.txt', 'a+')
     store_id.write(f'{lis[0]}:{pid}')
     store_id.write("\n")
     store_id.close()
-
+    time.sleep(1)
+    process = psutil.Process(os.getpid())
+    consumes0 = process.memory_info()[0]
+    consumes1 = process.memory_info()[1]
+    tcomsumes = (consumes0 + consumes1)
+    hui = open("process_consuming.txt", "a+")
+    hui.write(f'{lis[0]}-->{tcomsumes}')
+    hui.write("\n")
+    hui.close()
     try:
         run(
             vertex.start()
